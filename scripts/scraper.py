@@ -32,21 +32,24 @@ def get_summary(detail_url, session, headers, word_limit=1000):
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Inspect the detail page to find the correct selector for "Summary"
-        # Adjust the selector based on the actual HTML structure of miRBase detail pages
+        # Attempt to find the <pre> tag containing the description
+        # Option 1: Find by the containing div's style
+        description_div = soup.find('div', style=lambda value: value and 'margin-left:15px' in value)
         
-        # Example Selector (You may need to change this based on actual structure)
-        summary_div = soup.find('div', {'id': 'summary'})
-        
-        if summary_div:
-            summary_text = summary_div.get_text(separator=' ', strip=True)
-            # Split the summary into words and take the first `word_limit` words
-            summary_words = summary_text.split()[:word_limit]
-            summary_short = ' '.join(summary_words)
-            logging.info(f"Summary found: {summary_short}...")
-            return summary_short
+        if description_div:
+            pre_tag = description_div.find('pre')
+            if pre_tag:
+                summary_text = pre_tag.get_text(separator=' ', strip=True)
+                # Split the summary into words and take the first `word_limit` words
+                summary_words = summary_text.split()[:word_limit]
+                summary_short = ' '.join(summary_words)
+                logging.info(f"Summary found: {summary_short[:60]}...")  # Log first 60 chars
+                return summary_short
+            else:
+                logging.warning(f"<pre> tag not found within the description div for URL: {detail_url}")
+                return ""
         else:
-            logging.warning(f"Summary not found for URL: {detail_url}")
+            logging.warning(f"Description div not found for URL: {detail_url}")
             return ""
     
     except requests.exceptions.HTTPError as http_err:
@@ -56,7 +59,8 @@ def get_summary(detail_url, session, headers, word_limit=1000):
     
     return ""
 
-def scrape_mirbase_start_end_summary(url, output_csv='start_end_summary_data.csv', max_rows=30):
+
+def scrape_mirbase_start_end_summary(url, output_csv='start_end_summary_data.csv', max_rows=3):
     """
     Scrapes Start, End, Name, and Summary (first five words) information from miRBase and saves to a CSV file.
     
