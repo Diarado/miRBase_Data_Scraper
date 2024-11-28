@@ -48,6 +48,7 @@ def scrape_mirbase_start_end(url, output_csv='start_end_data.csv'):
         header_titles = [header.get_text(strip=True) for header in headers]
 
         try:
+            name_idx = header_titles.index('Name')
             start_idx = header_titles.index('Start')
             end_idx = header_titles.index('End')
         except ValueError:
@@ -70,13 +71,14 @@ def scrape_mirbase_start_end(url, output_csv='start_end_data.csv'):
         for row in rows:
             cols = row.find_all('td')
             # Ensure there are enough columns
-            if len(cols) < max(start_idx, end_idx) + 1:
+            if len(cols) < max(name_idx, start_idx, end_idx) + 1:
                 continue  # Skip rows that do not have enough columns
 
             # Extract text from the Start and End columns
+            name = cols[name_idx].get_text(strip=True)
             start = cols[start_idx].get_text(strip=True)
             end = cols[end_idx].get_text(strip=True)
-            start_end_list.append({'Start': start, 'End': end})
+            start_end_list.append({'Name': name, 'Start': start, 'End': end})
 
         if not start_end_list:
             logging.warning("No Start and End data found.")
@@ -85,7 +87,7 @@ def scrape_mirbase_start_end(url, output_csv='start_end_data.csv'):
 
         # Write the data to a CSV file
         with open(output_csv, mode='w', newline='', encoding='utf-8') as csvfile:
-            fieldnames = ['Start', 'End']
+            fieldnames = ['Name', 'Start', 'End']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
             writer.writeheader()
