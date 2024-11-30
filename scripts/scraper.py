@@ -13,7 +13,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-def get_summary(detail_url, session, headers, word_limit=1000):
+def get_summary(detail_url, session, headers, word_limit=50):
     """
     Fetches the summary from the miRNA detail page and limits it to the first `word_limit` words.
     
@@ -32,8 +32,8 @@ def get_summary(detail_url, session, headers, word_limit=1000):
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Attempt to find the <pre> tag containing the description
-        # Option 1: Find by the containing div's style
+        # Find the <pre> tag containing the description
+        # Find by the containing div's style
         description_div = soup.find('div', style=lambda value: value and 'margin-left:15px' in value)
         
         if description_div:
@@ -59,8 +59,7 @@ def get_summary(detail_url, session, headers, word_limit=1000):
     
     return ""
 
-
-def scrape_mirbase_start_end_summary(url, output_csv='start_end_summary_data.csv', max_rows=3):
+def scrape_mirbase_start_end_summary(url, output_csv='start_end_summary_data.csv', max_rows=1917):
     """
     Scrapes Start, End, Name, and Summary (first five words) information from miRBase and saves to a CSV file.
     
@@ -134,7 +133,7 @@ def scrape_mirbase_start_end_summary(url, output_csv='start_end_summary_data.csv
         data_list = []
         
         for idx, row in enumerate(rows, start=1):
-            # **LIMITING TO FIRST 30 ROWS**
+            # **LIMITING TO FIRST `max_rows` ROWS**
             if idx > max_rows:
                 logging.info(f"Reached the maximum limit of {max_rows} rows. Stopping the scraper.")
                 break  # Stop processing after max_rows
@@ -143,6 +142,7 @@ def scrape_mirbase_start_end_summary(url, output_csv='start_end_summary_data.csv
             # Ensure there are enough columns
             if len(cols) < max(start_idx, end_idx, name_idx) + 1:
                 logging.warning(f"Row {idx} does not have enough columns. Skipping.")
+                print(f"Row {idx}: Not enough columns. Skipping.")
                 continue  # Skip rows that do not have enough columns
             
             # Extract Start and End
@@ -177,6 +177,9 @@ def scrape_mirbase_start_end_summary(url, output_csv='start_end_summary_data.csv
                 'End': end,
                 'Summary': summary
             })
+            
+            # Print progress
+            print(f"Processed {idx} / {max_rows} rows.")
         
         if not data_list:
             logging.warning("No data extracted from the table.")
