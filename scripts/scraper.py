@@ -13,7 +13,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-def get_summary(detail_url, session, headers, word_limit=50):
+def get_summary(detail_url, session, headers):
     """
     Fetches the summary from the miRNA detail page and limits it to the first `word_limit` words.
     
@@ -41,10 +41,9 @@ def get_summary(detail_url, session, headers, word_limit=50):
             if pre_tag:
                 summary_text = pre_tag.get_text(separator=' ', strip=True)
                 # Split the summary into words and take the first `word_limit` words
-                summary_words = summary_text.split()[:word_limit]
-                summary_short = ' '.join(summary_words)
-                logging.info(f"Summary found: {summary_short[:60]}...")  # Log first 60 chars
-                return summary_short
+                summary_text
+                logging.info(f"Summary found: {summary_text[:10]}...")  # Log first 10 chars
+                return summary_text
             else:
                 logging.warning(f"<pre> tag not found within the description div for URL: {detail_url}")
                 return ""
@@ -129,8 +128,7 @@ def scrape_mirbase_start_end_summary(url, output_csv='miRNA_human.csv', max_rows
         rows = tbody.find_all('tr')
         logging.info(f"Found {len(rows)} rows in the table.")
         
-        # List to store Name, Start, End, and Summary information
-        data_list = []
+        # List to store Name, Start, End, Sequence, Seq_len (start - end + 1) and Summary , Summary_len
         
         for idx, row in enumerate(rows, start=1):
             # **LIMITING TO FIRST `max_rows` ROWS**

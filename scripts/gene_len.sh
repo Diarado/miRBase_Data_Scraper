@@ -40,7 +40,7 @@ $3 == "gene" {
     gene_id = arr[1]
     start = $4
     end = $5
-    gene_length = end - start
+    gene_length = end - start + 1
     print gene_id, start, end, gene_length
 }
 ' "$ANNOTATION_GTF" >> "$OUTPUT_CSV"
