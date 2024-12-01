@@ -16,51 +16,61 @@ logging.basicConfig(
 def get_summary_and_sequence(detail_url, session, headers):
     """
     Fetches the summary and sequence from the miRNA detail page.
+    Empty summary is considered valid.
     
     Parameters:
-        detail_url (str): The full URL to the miRNA detail page.
-        session (requests.Session): The session object for persistent connections.
-        headers (dict): The headers to use for the request.
+        detail_url (str): The full URL to the miRNA detail page
+        session (requests.Session): The session object for persistent connections
+        headers (dict): The headers to use for the request
     
     Returns:
-        tuple: (summary_text, sequence_text) or ("", "") if not found.
+        tuple: (summary_text, sequence_text)
     """
     try:
         logging.info(f"Fetching detail page: {detail_url}")
-        response = session.get(detail_url, headers=headers)
+        response = session.get(detail_url, headers=headers, timeout=10)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Find the description div
-        description_div = soup.find('div', style=lambda value: value and 'margin-left:15px' in value)
+        # Initialize variables
         summary_text = ""
         sequence_text = ""
         
+        # Try to find the description - it's okay if we don't find it
+        description_div = soup.find('div', style=lambda value: value and 'margin-left:15px' in value)
         if description_div:
-            # Get summary
             pre_tag = description_div.find('pre')
             if pre_tag:
                 summary_text = pre_tag.get_text(separator=' ', strip=True)
-                logging.info(f"Summary found: {summary_text[:10]}...")
-            
-            # Get sequence
-            sequence_div = soup.find('div', {'id': 'hairpinSequence'})
-            if sequence_div:
-                sequence_span = sequence_div.find('span', {'class': 'text-monospace'})
-                if sequence_span:
-                    sequence_text = sequence_span.get_text(strip=True)
-                    logging.info(f"Sequence found: {sequence_text[:10]}...")
+                logging.info(f"Summary found: {summary_text[:50]}...")
+        
+        # Try to find the sequence
+        sequence_div = soup.find('div', {'id': 'hairpinSequence'})
+        if sequence_div:
+            sequence_span = sequence_div.find('span', {'class': 'text-monospace'})
+            if sequence_span:
+                sequence_text = sequence_span.get_text(strip=True)
+                logging.info(f"Sequence found: {sequence_text[:50]}...")
         
         return summary_text, sequence_text
-    
+            
+    except requests.exceptions.Timeout:
+        logging.error(f"Timeout while fetching {detail_url}")
+        return "", ""
+        
     except requests.exceptions.HTTPError as http_err:
         logging.error(f"HTTP error while fetching {detail_url}: {http_err}")
+        if http_err.response.status_code == 429:  # Too Many Requests
+            logging.info("Rate limited, waiting 60 seconds...")
+            time.sleep(60)
+            return get_summary_and_sequence(detail_url, session, headers)
+        return "", ""
+        
     except Exception as err:
         logging.error(f"Error while fetching {detail_url}: {err}")
-    
-    return "", ""
+        return "", ""
 
-def scrape_mirbase_with_sequence(url, output_csv='miRNA_human_with_sequence.csv', max_rows=1917):
+def scrape_mirbase_with_sequence(url, output_csv='miRNA_human_with_sequence.csv', max_rows=3000):
     """
     Scrapes Start, End, Name, Sequence, and Summary information from miRBase and saves to a CSV file.
     """

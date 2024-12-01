@@ -35,7 +35,7 @@ ai_cnt = summary['Summary'].notna().sum()
 non_ai_cnt = len(summary) - ai_cnt
 
 # Calculate sequence lengths
-seq_lengths = summary['End'] - summary['Start']
+seq_lengths = summary['End'] - summary['Start'] + 1
 mean_seq_len = seq_lengths.mean()
 median_seq_len = seq_lengths.median()
 

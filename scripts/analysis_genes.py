@@ -3,8 +3,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 sns.set(style="whitegrid")
-summary = pd.read_csv('gh38_genes.csv')
-
+# summary = pd.read_csv('gh38_genes.csv')
+summary = pd.read_csv('ecoli_genes.csv')
 seq_lengths = summary['length']
 
 mean_seq_len = seq_lengths.mean()
@@ -17,7 +17,8 @@ plt.figure(figsize=(10, 7))
 plt.hist(seq_lengths, bins=100, color='skyblue', edgecolor='black', alpha=0.7, log=True)
 
 # Title and labels
-plt.title('Histogram of Human Gene Lengths (hg38)', fontsize=16)
+# plt.title('Histogram of Human Gene Lengths (hg38)', fontsize=16)
+plt.title('Histogram of E. coli Gene Lengths', fontsize=16)
 plt.xlabel('Gene Length (Base Pairs)', fontsize=14)
 plt.ylabel('Number of Genes (Log Scale)', fontsize=14)
 
@@ -28,6 +29,7 @@ plt.axvline(median_seq_len, color='green', linestyle='dashed', linewidth=2, labe
 # Add legend
 plt.legend(fontsize=12)
 plt.tight_layout()
-plt.savefig('hg38_gene_length_histogram.png', dpi=300)
+# plt.savefig('hg38_gene_length_histogram.png', dpi=300)
+plt.savefig('ecoli_gene_length_histogram.png', dpi=300)
 plt.show()
 
