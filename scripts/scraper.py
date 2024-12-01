@@ -59,7 +59,7 @@ def get_summary(detail_url, session, headers, word_limit=50):
     
     return ""
 
-def scrape_mirbase_start_end_summary(url, output_csv='start_end_summary_data.csv', max_rows=1917):
+def scrape_mirbase_start_end_summary(url, output_csv='miRNA_human.csv', max_rows=1917):
     """
     Scrapes Start, End, Name, and Summary (first five words) information from miRBase and saves to a CSV file.
     
