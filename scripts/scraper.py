@@ -10,7 +10,7 @@ logging.basicConfig(
     filename='scraper_with_sequence.log',
     filemode='a',
     format='%(asctime)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    level=logging.INFO  
 )
 
 def get_summary_and_sequence(detail_url, session, headers):
@@ -70,7 +70,8 @@ def get_summary_and_sequence(detail_url, session, headers):
         logging.error(f"Error while fetching {detail_url}: {err}")
         return "", ""
 
-def scrape_mirbase_with_sequence(url, output_csv='miRNA_human_with_sequence.csv', max_rows=3000):
+# output_csv='miRNA_human_with_sequence.csv'
+def scrape_mirbase_with_sequence(url, output_csv='miRNA_Arabidopsis_with_sequence.csv', max_rows=700):
     """
     Scrapes Start, End, Name, Sequence, and Summary information from miRBase and saves to a CSV file.
     """
@@ -197,5 +198,21 @@ def scrape_mirbase_with_sequence(url, output_csv='miRNA_human_with_sequence.csv'
         logging.error(f"An error occurred: {err}")
 
 if __name__ == "__main__":
-    mirbase_url = "https://mirbase.org/browse/results/?organism=hsa"
+    # for human
+    # mirbase_url = "https://mirbase.org/browse/results/?organism=hsa"
+    
+    # for mouse
+    # mirbase_url = "https://mirbase.org/browse/results/?organism=mmu"
+    
+    # for rat
+    # mirbase_url = "https://mirbase.org/browse/results/?organism=rno"
+    
+    # for fly
+    # mirbase_url = "https://mirbase.org/browse/results/?organism=dme"
+    
+    # for worm
+    # mirbase_url = "https://mirbase.org/browse/results/?organism=cel"
+    
+    # for Arabidopsis
+    mirbase_url = "https://mirbase.org/browse/results/?organism=ath"
     scrape_mirbase_with_sequence(mirbase_url)
