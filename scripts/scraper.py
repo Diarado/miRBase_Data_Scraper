@@ -13,6 +13,178 @@ logging.basicConfig(
     level=logging.INFO  
 )
 
+def get_dict():
+    ref = {
+        'Alveolata': ['Symbiodinium microadriaticum'],
+        'Chromalveolata': {
+            'Heterokontophyta': {}
+        },
+        'Metazoa': {
+            'Bilateria': {
+                'Deuterostoma': {
+                    'Xenoturbella bocki': ['Xenoturbella bocki'],
+                    'Chordata': {
+                        'Cephalochordata': ['Branchiostoma belcheri', 'Branchiostoma floridae'],
+                        'Urochordata': ['Ciona intestinalis', 'Ciona savignyi', 'Oikopleura dioica'],
+                        'Vertebrata': {
+                            'Agnathostomata': ['Petromyzon marinus'],
+                            'Amphibia': ['Xenopus laevis', 'Xenopus tropicalis'],
+                            'Aves': ['Anas platyrhynchos', 'Columba livia', 'Gallus gallus', 'Taeniopygia guttata'],
+                            'Mammalia': {
+                                'Carnivora': ['Canis familiaris'],
+                                'Cingulata': ['Dasypus novemcinctus'],
+                                'Lagomorpha': ['Oryctolagus cuniculus'],
+                                'Laurasiatheria': ['Artibeus jamaicensis', 'Eptesicus fuscus', 'Equus caballus', 'Pteropus alecto'],
+                                'Metatheria': ['Macropus eugenii', 'Monodelphis domestica', 'Sarcophilus harrisii'],
+                                'Primates': {
+                                    'Atelidae': ['Ateles geoffroyi', 'Lagothrix lagotricha'],
+                                    'Cebidae': ['Callithrix jacchus', 'Saguinus labiatus', 'Saimiri boliviensis'],
+                                    'Cercopithecidae': ['Macaca mulatta', 'Macaca nemestrina', 'Papio hamadryas', 'Pygathrix bieti'],
+                                    'Cheirogaleidae': ['Microcebus murinus'],
+                                    'Daubentoniidae': ['Daubentonia madagascariensis'],
+                                    'Galagidae': ['Otolemur garnettii'],
+                                    'Hominidae': ['Gorilla gorilla', 'Homo sapiens', 'Pan paniscus', 'Pan troglodytes', 'Pongo pygmaeus', 'Symphalangus syndactylus'],
+                                    'Hylobatidae': ['Nomascus leucogenys'],
+                                    'Lemuridae': ['Lemur catta']
+                                },
+                                'Prototheria': ['Ornithorhynchus anatinus'],
+                                'Rodentia': ['Cavia porcellus', 'Cricetulus griseus', 'Mus musculus', 'Rattus norvegicus'],
+                                'Ruminantia': ['Bos taurus', 'Capra hircus', 'Ovis aries'],
+                                'Scandentia': ['Tupaia chinensis'],
+                                'Suina': ['Sus scrofa']
+                            },
+                            'Sauria': ['Alligator mississippiensis', 'Anolis carolinensis', 'Chrysemys picta', 'Ophiophagus hannah', 'Python bivittatus'],
+                            'Teleostei': [
+                                'Astatotilapia burtoni', 'Cyprinus carpio', 'Danio rerio', 'Electrophorus electricus',
+                                'Fugu rubripes', 'Gadus morhua', 'Hippoglossus hippoglossus', 'Ictalurus punctatus',
+                                'Metriaclima zebra', 'Neolamprologus brichardi', 'Oreochromis niloticus',
+                                'Oryzias latipes', 'Paralichthys olivaceus', 'Pundamilia nyererei',
+                                'Salmo salar', 'Tetraodon nigroviridis'
+                            ]
+                        }
+                    },
+                    'Echinodermata': ['Lytechinus variegatus', 'Patiria miniata', 'Strongylocentrotus purpuratus'],
+                    'Hemichordata': ['Saccoglossus kowalevskii']
+                },
+                'Ecdysozoa': {
+                    'Arthropoda': {
+                        'Chelicerata': ['Ixodes scapularis', 'Parasteatoda tepidariorum', 'Rhipicephalus microplus', 'Tetranychus urticae'],
+                        'Crustacea': ['Daphnia pulex', 'Marsupenaeus japonicus', 'Triops cancriformis'],
+                        'Hexapoda': [
+                            'Acyrthosiphon pisum', 'Aedes aegypti', 'Anopheles gambiae', 'Apis mellifera',
+                            'Bactrocera dorsalis', 'Biston betularia', 'Bombyx mori', 'Culex quinquefasciatus',
+                            'Dinoponera quadriceps', 'Drosophila ananassae', 'Drosophila erecta',
+                            'Drosophila grimshawi', 'Drosophila melanogaster', 'Drosophila mojavensis',
+                            'Drosophila persimilis', 'Drosophila pseudoobscura', 'Drosophila sechellia',
+                            'Drosophila simulans', 'Drosophila virilis', 'Drosophila willistoni',
+                            'Drosophila yakuba', 'Heliconius melpomene', 'Locusta migratoria', 'Manduca sexta',
+                            'Nasonia giraulti', 'Nasonia longicornis', 'Nasonia vitripennis', 'Plutella xylostella',
+                            'Polistes canadensis', 'Spodoptera frugiperda', 'Tribolium castaneum'
+                        ],
+                        'Mandibulata': ['Strigamia maritima']
+                    },
+                    'Nematoda': [
+                        'Ascaris suum', 'Brugia malayi', 'Caenorhabditis brenneri', 'Caenorhabditis briggsae',
+                        'Caenorhabditis elegans', 'Caenorhabditis remanei', 'Haemonchus contortus',
+                        'Heligmosomoides polygyrus', 'Panagrellus redivivus', 'Pristionchus pacificus',
+                        'Strongyloides ratti'
+                    ]
+                },
+                'Lophotrochozoa': {
+                    'Annelida': ['Capitella teleta'],
+                    'Brachiopoda': ['Glottidia pyramidata', 'Terebratulina retusa'],
+                    'Mollusca': ['Haliotis rufescens', 'Lottia gigantea', 'Melibe leonina'],
+                    'Nemertea': ['Cerebratulus lacteus'],
+                    'Platyhelminthes': [
+                        'Echinococcus granulosus', 'Echinococcus multilocularis', 'Fasciola hepatica',
+                        'Gyrodactylus salaris', 'Mesocestoides corti', 'Schistosoma japonicum',
+                        'Schistosoma mansoni', 'Schmidtea mediterranea'
+                    ]
+                }
+            }
+        },
+        'Cnidaria': ['Hydra magnipapillata', 'Nematostella vectensis'],
+        'Porifera': ['Amphimedon queenslandica', 'Leucosolenia complicata', 'Sycon ciliatum'],
+        'Mycetozoa': ['Dictyostelium discoideum'],
+        'Viridiplantae': {
+            'Chlorophyta': ['Chlamydomonas reinhardtii'],
+            'Coniferophyta': ['Cunninghamia lanceolata', 'Picea abies', 'Pinus densata', 'Pinus taeda'],
+            'Embryophyta': {
+                'species': ['Physcomitrella patens', 'Selaginella moellendorffii'],
+                'Magnoliophyta': {
+                    'species': ['Amborella trichopoda'],
+                    'eudicotyledons': {
+                        'Amaranthaceae': ['Salicornia europaea'],
+                        'Araliaceae': ['Panax ginseng'],
+                        'Asteraceae': [
+                            'Cynara cardunculus', 'Helianthus annuus', 'Helianthus argophyllus',
+                            'Helianthus ciliaris', 'Helianthus exilis', 'Helianthus paradoxus',
+                            'Helianthus petiolaris', 'Helianthus tuberosus'
+                        ],
+                        'Brassicaceae': [
+                            'Arabidopsis lyrata', 'Arabidopsis thaliana', 'Brassica napus',
+                            'Brassica oleracea', 'Brassica rapa', 'Camelina sativa'
+                        ],
+                        'Caricaceae': ['Carica papaya'],
+                        'Cucurbitaceae': ['Cucumis melo', 'Cucumis sativus'],
+                        'Euphorbiaceae': ['Hevea brasiliensis', 'Manihot esculenta', 'Ricinus communis'],
+                        'Fabaceae': [
+                            'Acacia auriculiformis', 'Acacia mangium', 'Arachis hypogaea', 'Glycine max',
+                            'Glycine soja', 'Lotus japonicus', 'Medicago truncatula', 'Phaseolus vulgaris',
+                            'Vigna unguiculata'
+                        ],
+                        'Lamiales': [
+                            'Avicennia marina', 'Digitalis purpurea', 'Rehmannia glutinosa',
+                            'Salvia miltiorrhiza', 'Salvia sclarea'
+                        ],
+                        'Linaceae': ['Linum usitatissimum'],
+                        'Malvaceae': [
+                            'Gossypium arboreum', 'Gossypium herbaceum', 'Gossypium hirsutum',
+                            'Gossypium raimondii', 'Theobroma cacao'
+                        ],
+                        'Myrtaceae': ['Eugenia uniflora'],
+                        'Paeoniaceae': ['Paeonia lactiflora'],
+                        'Ranunculaceae': ['Aquilegia caerulea'],
+                        'Rhizophoraceae': ['Bruguiera cylindrica', 'Bruguiera gymnorhiza'],
+                        'Rosaceae': ['Fragaria vesca', 'Malus domestica', 'Prunus persica'],
+                        'Rutaceae': [
+                            'Citrus clementina', 'Citrus reticulata', 'Citrus sinensis',
+                            'Citrus trifoliata'
+                        ],
+                        'Salicaceae': ['Populus euphratica', 'Populus trichocarpa'],
+                        'Solanaceae': ['Nicotiana tabacum', 'Solanum lycopersicum', 'Solanum tuberosum'],
+                        'Vitaceae': ['Vitis vinifera']
+                    },
+                    'monocotyledons': [
+                        'Aegilops tauschii', 'Asparagus officinalis', 'Brachypodium distachyon',
+                        'Elaeis guineensis', 'Festuca arundinacea', 'Hordeum vulgare', 'Oryza sativa',
+                        'Saccharum officinarum', 'Saccharum sp.', 'Sorghum bicolor',
+                        'Triticum aestivum', 'Triticum turgidum', 'Vriesea carinata', 'Zea mays'
+                    ]
+                }
+            }
+        },
+        'Viruses': [
+            'Bandicoot papillomatosis carcinomatosis virus type 1',
+            'Bandicoot papillomatosis carcinomatosis virus type 2',
+            'BK polyomavirus', 'Bovine foamy virus', 'Bovine herpesvirus 1',
+            'Bovine herpesvirus 5', 'Bovine leukemia virus', 'Duck enteritis virus',
+            'Epstein Barr virus', 'Gorilla gorilla gorilla polyomavirus 1',
+            'Herpes B virus', 'Herpes Simplex Virus 1', 'Herpes Simplex Virus 2',
+            'Herpesvirus of turkeys', 'Herpesvirus saimiri strain A11',
+            'Human cytomegalovirus', 'Human herpesvirus 6B', 'Human immunodeficiency virus 1',
+            'Infectious laryngotracheitis virus', 'JC polyomavirus',
+            'Kaposi sarcoma-associated herpesvirus', "Marek's disease virus type 1",
+            "Marek's disease virus type 2", 'Merkel cell polyomavirus',
+            'Mouse cytomegalovirus', 'Mouse gammaherpesvirus 68',
+            'Pan troglodytes verus polyomavirus 2a', 'Pseudorabies virus',
+            'Raccoon polyomavirus', 'Rhesus lymphocryptovirus', 'Rhesus monkey rhadinovirus',
+            'Simian foamy virus', 'Simian virus 40', 'Torque teno virus'
+        ]
+    }
+    
+    return ref
+
 def get_summary_and_sequence(detail_url, session, headers):
     """
     Fetches the summary and sequence from the miRNA detail page.
@@ -28,7 +200,7 @@ def get_summary_and_sequence(detail_url, session, headers):
     """
     try:
         logging.info(f"Fetching detail page: {detail_url}")
-        response = session.get(detail_url, headers=headers, timeout=10)
+        response = session.get(detail_url, headers=headers, timeout=30)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
         
@@ -71,7 +243,7 @@ def get_summary_and_sequence(detail_url, session, headers):
         return "", ""
 
 # output_csv='miRNA_human_with_sequence.csv'
-def scrape_mirbase_with_sequence(url, output_csv='miRNA_Arabidopsis_with_sequence.csv', max_rows=700):
+def scrape_mirbase_with_sequence(url, output_csv='miRNA_Arabidopsis_with_sequence.csv', max_rows=3000):
     """
     Scrapes Start, End, Name, Sequence, and Summary information from miRBase and saves to a CSV file.
     """
@@ -93,8 +265,9 @@ def scrape_mirbase_with_sequence(url, output_csv='miRNA_Arabidopsis_with_sequenc
         response.raise_for_status()
         
         soup = BeautifulSoup(response.text, 'html.parser')
+        # this for Arab
+        # table = soup.find('table', {'id': 'ath-results-table'})
         table = soup.find('table', {'id': 'results-table'})
-        
         if not table:
             logging.error("Could not find the results table on the page.")
             return
@@ -215,4 +388,7 @@ if __name__ == "__main__":
     
     # for Arabidopsis
     mirbase_url = "https://mirbase.org/browse/results/?organism=ath"
+    
     scrape_mirbase_with_sequence(mirbase_url)
+    
+    
