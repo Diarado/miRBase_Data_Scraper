@@ -1,75 +1,179 @@
 #!/bin/bash
 set -e  # Exit immediately if a command exits with a non-zero status
 
+# ----------------------------
 # Variables
-# Uncomment and set the appropriate paths for human and E. coli annotations
-# For Human
-# ANNOTATION_GTF="/mnt/d/Jiahe/Microsoft/miRBase_Data_Scraper/human_reference/annotations/gencode.v47.chr_patch_hapl_scaff.annotation.gtf"
-# OUTPUT_CSV="/mnt/d/Jiahe/Microsoft/miRBase_Data_Scraper/gh38_genes.csv"
+# ----------------------------
 
-# For E. coli
-ANNOTATION_GFF="/mnt/d/Jiahe/Microsoft/miRBase_Data_Scraper/ecoli_reference/annotations/ecoli_annotations.gff"
-OUTPUT_CSV="/mnt/d/Jiahe/Microsoft/miRBase_Data_Scraper/ecoli_genes.csv"
+# Directory to store downloaded and processed data
+DATA_DIR="$HOME/ncbi_human_genome"
+mkdir -p "$DATA_DIR"
+cd "$DATA_DIR"
 
+# Output CSV file
+OUTPUT_CSV="$DATA_DIR/human_genes.csv"
+
+# NCBI Taxonomy ID for Homo sapiens
+TAXON_ID="9606"
+
+# ----------------------------
 # Function to check if a command exists
+# ----------------------------
 command_exists () {
     command -v "$1" >/dev/null 2>&1
 }
 
-# Check for required commands
-for cmd in awk; do
+# ----------------------------
+# Check for Required Commands
+# ----------------------------
+
+REQUIRED_COMMANDS=("datasets" "awk" "bedtools" "unzip" "gunzip")
+
+for cmd in "${REQUIRED_COMMANDS[@]}"; do
     if ! command_exists "$cmd"; then
         echo "Error: Required command '$cmd' is not installed."
         exit 1
     fi
 done
 
-# Check if the annotation file exists
-if [ ! -f "$ANNOTATION_GFF" ]; then
-    echo "Error: Annotation file not found at $ANNOTATION_GFF."
+# ----------------------------
+# Step 1: Download Human Genome and Annotations from NCBI
+# ----------------------------
+
+echo "Downloading human genome and annotations from NCBI Datasets CLI..."
+
+# Download the human genome dataset with annotations
+datasets download genome taxon "$TAXON_ID" --filename human_genome.zip
+
+# Unzip the downloaded dataset
+echo "Unzipping human_genome.zip..."
+unzip -o human_genome.zip -d human_genome
+
+# Paths to important files
+GFF3_FILE=$(find human_genome -type f -name "*.gff3" | head -n 1)
+FASTA_FILE=$(find human_genome -type f -name "*.fna.gz" | head -n 1)
+
+# Check if GFF3 and FASTA files are found
+if [ -z "$GFF3_FILE" ]; then
+    echo "Error: GFF3 annotation file not found in the downloaded dataset."
     exit 1
 fi
 
-echo "Using annotation file: $ANNOTATION_GFF"
+if [ -z "$FASTA_FILE" ]; then
+    echo "Error: Genome FASTA file not found in the downloaded dataset."
+    exit 1
+fi
+
+echo "Found GFF3 file: $GFF3_FILE"
+echo "Found FASTA file: $FASTA_FILE"
+
+# Unzip the FASTA file if it's gzipped
+if [[ "$FASTA_FILE" == *.gz ]]; then
+    echo "Unzipping FASTA file..."
+    gunzip -k "$FASTA_FILE"  # -k to keep the original gzipped file
+    FASTA_FILE="${FASTA_FILE%.gz}"
+    echo "Fasta file unzipped to: $FASTA_FILE"
+fi
+
+# ----------------------------
+# Step 2: Index the Genome FASTA with bedtools
+# ----------------------------
+
+echo "Indexing the genome FASTA file with bedtools..."
+
+bedtools faidx "$FASTA_FILE"
+
+# ----------------------------
+# Step 3: Process the GFF3 File to Extract Gene Information
+# ----------------------------
+
+echo "Processing GFF3 file to extract gene information..."
 
 # Write header to CSV
-echo "gene_id,gene_name,start,end,length" > "$OUTPUT_CSV"
+echo "gene_id,gene_name,start,end,length,sequence,summary" > "$OUTPUT_CSV"
 
-# Parse the annotation file and extract required fields
-echo "Processing $ANNOTATION_GFF to generate $OUTPUT_CSV..."
+# Temporary BED file for gene coordinates
+BED_FILE="$DATA_DIR/human_genes.bed"
 
+# Extract gene entries and convert to BED format
 awk '
-BEGIN { FS = "\t"; OFS = "," }
+BEGIN { FS = "\t" }
 $3 == "gene" {
+    # Initialize variables
     gene_id = ""
     gene_name = ""
+    description = ""
+    chrom = $1
+    start = $4
+    end = $5
 
-    # Attempt to extract gene_id from gene_id "ENSG..."
-    if (match($9, /gene_id "([^"]+)"/, arr)) {
-        gene_id = arr[1]
-    }
-    # Else, attempt to extract gene_id from ID=gene-b0001
-    else if (match($9, /ID=gene-([^;]+)/, arr)) {
-        gene_id = arr[1]
-    }
-
-    # Attempt to extract gene_name from gene_name "BRCA1"
-    if (match($9, /gene_name "([^"]+)"/, arr)) {
-        gene_name = arr[1]
-    }
-    # Else, attempt to extract gene_name from Name=thrL
-    else if (match($9, /Name=([^;]+)/, arr)) {
-        gene_name = arr[1]
+    # Parse attributes
+    split($9, attrs, ";")
+    for(i in attrs) {
+        split(attrs[i], pair, "=")
+        key = pair[1]
+        value = pair[2]
+        if(key == "gene_id") {
+            gene_id = value
+        }
+        if(key == "gene_name") {
+            gene_name = value
+        }
+        if(key == "description") {
+            description = value
+        }
     }
 
     # Calculate gene length
-    start = $4
-    end = $5
-    gene_length = end - start + 1  # Inclusive of both start and end
+    gene_length = end - start + 1
 
-    # Print to CSV
-    print gene_id, gene_name, start, end, gene_length
-}
-' "$ANNOTATION_GFF" >> "$OUTPUT_CSV"
+    # Print BED format: chrom, start-1 (0-based), end, gene_id, gene_length, strand
+    # bedtools uses 0-based start, so subtract 1
+    print chrom "\t" (start - 1) "\t" end "\t" gene_id "\t" gene_length "\t" $7 "\t" gene_name "\t" description
+}' "$GFF3_FILE" > "$BED_FILE"
+
+# ----------------------------
+# Step 4: Extract Gene Sequences Using bedtools
+# ----------------------------
+
+echo "Extracting gene sequences using bedtools..."
+
+# Extract sequences and save to FASTA
+GENE_FASTA="$DATA_DIR/human_genes_sequences.fasta"
+bedtools getfasta -fi "$FASTA_FILE" -bed "$BED_FILE" -name -fo "$GENE_FASTA"
+
+# ----------------------------
+# Step 5: Compile Gene Information into CSV
+# ----------------------------
+
+echo "Compiling gene information into CSV..."
+
+# Create associative array to store sequences
+declare -A gene_sequences
+
+# Read the FASTA file and store sequences in the array
+while read -r line; do
+    if [[ "$line" == ">"* ]]; then
+        gene_id_seq=$(echo "$line" | sed 's/>//')
+        current_gene="$gene_id_seq"
+        gene_sequences["$current_gene"]=""
+    else
+        gene_sequences["$current_gene"]+="$line"
+    fi
+done < "$GENE_FASTA"
+
+# Process BED file and append information to CSV
+while IFS=$'\t' read -r chrom start end gene_id gene_length strand gene_name description; do
+    # Retrieve sequence from the associative array
+    sequence="${gene_sequences[$gene_id]}"
+    
+    # Handle cases where description might contain quotes or commas
+    # Enclose the description in double quotes and escape any existing double quotes
+    summary=$(echo "$description" | sed 's/"/""/g')
+    summary="\"$summary\""
+
+    # Append to CSV
+    echo "$gene_id,$gene_name,$start,$end,$gene_length,$sequence,$summary" >> "$OUTPUT_CSV"
+done < "$BED_FILE"
 
 echo "CSV file generated at $OUTPUT_CSV."
