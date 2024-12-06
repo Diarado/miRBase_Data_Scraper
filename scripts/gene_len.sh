@@ -1,269 +1,282 @@
-#!/bin/bash
-set -e  # Exit immediately if a command exits with a non-zero status
-set -o pipefail  # Fail a pipeline if any command errors
+#!/usr/bin/env bash
+set -euo pipefail
 
-# Add debugging output
-exec 1> >(tee -a "debug_output.log")
-exec 2>&1
+DATA_DIR="./reference_data"
+ACCESSION="GCF_000001405.40"
 
-# Directory to store downloaded and processed data
-DATA_DIR="/mnt/d/Jiahe/Microsoft/miRBase_Data_Scraper/reference"
 mkdir -p "$DATA_DIR"
 cd "$DATA_DIR"
 
-# Output CSV file
-OUTPUT_CSV="$DATA_DIR/human_genes.csv"
+OUTPUT_CSV="human_genes_with_summaries.csv"
 
-# NCBI Accession for Homo sapiens
-ACCESSION="GCF_000001405.40"
-
-echo "Script started"
-echo "Working directory: $(pwd)"
-echo "DATA_DIR: $DATA_DIR"
-
+echo "Starting test pipeline for first 5 genes..."
 # ----------------------------
-# Function to check if a command exists
+# Check for required tools
 # ----------------------------
-command_exists () {
-    command -v "$1" >/dev/null 2>&1
-}
-
-# ----------------------------
-# Check for Required Commands
-# ----------------------------
-
-REQUIRED_COMMANDS=("datasets" "awk" "bedtools" "unzip" "gunzip" "wget" "samtools")
+REQUIRED_COMMANDS=("datasets" "awk" "bedtools" "unzip" "gunzip" "wget" "samtools" "xmllint" "efetch")
 
 for cmd in "${REQUIRED_COMMANDS[@]}"; do
-    if ! command_exists "$cmd"; then
-        echo "Error: Required command '$cmd' is not installed or not in PATH."
-        echo "Please install '$cmd' before running this script."
+    if ! command -v "$cmd" > /dev/null; then
+        echo "Error: Required command '$cmd' not found. Please install it."
         exit 1
     fi
 done
 
 # ----------------------------
-# Step 1: Download and Extract
+# Step 1: Download human genome and annotations if not present
 # ----------------------------
-
-echo "Downloading human genome and annotations..."
-if [ ! -f human_genome.zip ]; then
+if [ ! -f "human_genome.zip" ]; then
+    echo "Downloading human genome and annotations..."
     datasets download genome accession "$ACCESSION" \
         --include gff3,rna,cds,protein,genome,seq-report \
         --filename human_genome.zip
-fi
-
-echo "Extracting files..."
-if [ -f human_genome.zip ]; then
-    unzip -o human_genome.zip -d human_genome
 else
-    echo "Error: human_genome.zip not found"
-    exit 1
+    echo "human_genome.zip already exists. Skipping download."
 fi
 
 # ----------------------------
-# Step 2: Locate Files
+# Step 2: Extract downloaded data if needed
 # ----------------------------
+GFF3_FILE=""
+if [ ! -d "human_genome" ] || [ -z "$(find human_genome -type f -name '*.gff*' 2>/dev/null)" ]; then
+    echo "Extracting downloaded data..."
+    unzip -o human_genome.zip -d human_genome
+    echo "Extraction complete."
+else
+    echo "human_genome directory with GFF3 files already present. Skipping extraction."
+fi
 
-# Locate the GFF3 file
-GFF3_FILE=$(find human_genome -type f \( -name "*.gff3" -o -name "*.gff" \) | head -n 1)
-
-# Verify GFF3 file
+GFF3_FILE=$(find human_genome -type f -name "*.gff*" | head -n 1)
 if [ -z "$GFF3_FILE" ]; then
-    echo "Error: GFF3 file not found"
-    echo "Contents of human_genome directory:"
-    ls -R human_genome
+    echo "Error: No GFF3 file found after extraction."
     exit 1
 fi
-
 echo "Found GFF3 file: $GFF3_FILE"
-echo "GFF3 file size: $(ls -lh "$GFF3_FILE")"
 
 # ----------------------------
-# Step 3: Process FASTA Files
+# Step 3: Combine FASTA and index only if not done
 # ----------------------------
+COMBINED_FASTA="combined_genomic.fna"
 
-echo "Combining all FASTA files into a single genome FASTA..."
+if [ ! -f "$COMBINED_FASTA" ]; then
+    echo "Combining FASTA files..."
+    > "$COMBINED_FASTA"
+    ALL_FASTA_FILES=$(find human_genome -type f -name "*genomic.fna*" )
+    for f in $ALL_FASTA_FILES; do
+        if [[ "$f" == *.gz ]]; then
+            gunzip -c "$f" >> "$COMBINED_FASTA"
+        else
+            cat "$f" >> "$COMBINED_FASTA"
+        fi
+    done
+    echo "FASTA combination complete."
+else
+    echo "$COMBINED_FASTA already exists. Skipping FASTA combination."
+fi
 
-# Find all genomic FASTA files
-ALL_FASTA_FILES=$(find human_genome -type f \( -name "*genomic.fna.gz" -o -name "*genomic.fna" \))
-
-# Temporary combined FASTA file
-COMBINED_FASTA="$DATA_DIR/combined_genomic.fna"
-
-# Initialize the combined FASTA file
-> "$COMBINED_FASTA"
-
-# Iterate over all FASTA files and append their contents
-for fasta in $ALL_FASTA_FILES; do
-    if [[ "$fasta" == *.gz ]]; then
-        echo "Unzipping and adding $fasta to combined FASTA..."
-        gunzip -c "$fasta" >> "$COMBINED_FASTA"
-    else
-        echo "Adding $fasta to combined FASTA..."
-        cat "$fasta" >> "$COMBINED_FASTA"
-    fi
-done
-
-echo "All FASTA files have been combined."
-echo "Combined FASTA size: $(ls -lh "$COMBINED_FASTA")"
-
-# ----------------------------
-# Step 4: Index FASTA
-# ----------------------------
-
-echo "Indexing the combined genome FASTA file..."
-samtools faidx "$COMBINED_FASTA"
+if [ ! -f "$COMBINED_FASTA.fai" ]; then
+    echo "Indexing FASTA..."
+    samtools faidx "$COMBINED_FASTA"
+    echo "FASTA indexing complete."
+else
+    echo "$COMBINED_FASTA.fai already exists. Skipping indexing."
+fi
 
 # ----------------------------
-# Step 5: Process GFF3
+# Step 4: Parse GFF3 to extract gene annotations if not done
 # ----------------------------
-
-echo "Processing GFF3 file..."
-BED_FILE="$DATA_DIR/human_genes.bed"
-
-# Write header to CSV
-echo "gene_id,gene_name,start,end,length,sequence,summary" > "$OUTPUT_CSV"
-
-# Create BED file with improved attribute parsing
-awk -v BED_FILE="$BED_FILE" '
-BEGIN { 
-    FS="\t"; 
-    OFS="\t";
-    print "Starting GFF3 processing..." > "/dev/stderr"
-}
-$3 == "gene" {
-    print "Processing gene entry at line " NR > "/dev/stderr"
-    
-    # Initialize variables
-    gene_id = "NA"
-    gene_name = "NA"
-    description = "NA"
-    summary = "NA"
-    
-    # Parse attributes
-    n = split($9, attrs, ";")
-    for (i = 1; i <= n; i++) {
-        gsub(/^[ \t]+/, "", attrs[i])
-        
-        # Handle Dbxref attributes specially
-        if (attrs[i] ~ /^Dbxref=/) {
-            split(attrs[i], dbxrefs, ",")
-            for (j in dbxrefs) {
-                if (dbxrefs[j] ~ /^GeneID:/) {
-                    split(dbxrefs[j], temp, ":")
-                    gene_id = temp[2]
+BED_FILE="human_genes.bed"
+if [ ! -s "$BED_FILE" ]; then
+    echo "Extracting gene annotations from GFF3..."
+    awk -F"\t" -v OFS="\t" '
+    $3 == "gene" {
+        gene_id="NA"; gene_name="NA"; desc="NA";
+        n = split($9, attrs, ";")
+        for(i=1; i<=n; i++){
+            split(attrs[i], pair, "=")
+            key=pair[1]; value=pair[2]
+            gsub(/^ +| +$/, "", key)
+            gsub(/^ +| +$/, "", value)
+            
+            if(key=="Name"){
+                gene_name=value
+            }
+            
+            # Find GeneID in Dbxref
+            if(key=="Dbxref"){
+                split(value, dbx, ",")
+                for(j in dbx){
+                    if(dbx[j] ~ /^GeneID:/){
+                        split(dbx[j], t, ":")
+                        gene_id=t[2]
+                    }
                 }
             }
-            continue
+            
+            if(key=="description"){
+                desc=value
+            }
         }
-        
-        # Parse key-value pairs
-        split(attrs[i], pair, "=")
-        key = pair[1]
-        value = pair[2]
-        
-        if (key == "ID") {
-            if (gene_id == "NA") gene_id = value
-        } else if (key == "Name") {
-            gene_name = value
-        } else if (key == "description") {
-            description = value
-        } else if (key == "Note" && value ~ /Summary:/) {
-            # Extract the summary from the Note field
-            summary = value
-            # Remove "Summary:" prefix if present
-            sub(/^Summary:[ ]*/, "", summary)
+        if(gene_id != "NA") {
+            gene_len=($5-$4+1)
+            print $1, $4-1, $5, gene_id, gene_len, $7, gene_name, desc
         }
-    }
-    
-    # If no specific summary found, use description
-    if (summary == "NA") {
-        summary = description
-    }
-    
-    # Print BED format with summary included
-    if (gene_id != "NA") {
-        print $1, $4-1, $5, gene_id, ($5 - $4 + 1), $7, gene_name, summary
-    }
-}
-END {
-    print "GFF3 processing complete" > "/dev/stderr"
-}' "$GFF3_FILE" > "$BED_FILE"
+    }' "$GFF3_FILE" > "$BED_FILE"
 
-# Verify BED file creation
-if [ ! -s "$BED_FILE" ]; then
-    echo "Error: BED file is empty or was not created"
-    exit 1
+    if [ ! -s "$BED_FILE" ]; then
+        echo "No gene entries found in GFF3."
+        exit 1
+    fi
+    echo "Gene annotations extracted."
+else
+    echo "$BED_FILE already exists. Skipping GFF3 parsing."
 fi
 
-echo "BED file created successfully"
-echo "First few lines of BED file:"
-head -n 5 "$BED_FILE"
-
 # ----------------------------
-# Step 6: Extract Sequences
+# Step 5: Extract gene sequences if not done
 # ----------------------------
-
-echo "Extracting gene sequences..."
-GENE_FASTA="$DATA_DIR/human_genes_sequences.fasta"
-bedtools getfasta -fi "$COMBINED_FASTA" -bed "$BED_FILE" -s -name -fo "$GENE_FASTA"
-
+GENE_FASTA="human_genes_sequences.fasta"
 if [ ! -s "$GENE_FASTA" ]; then
-    echo "Error: FASTA file is empty or was not created"
-    exit 1
+    echo "Extracting gene sequences..."
+    bedtools getfasta -fi "$COMBINED_FASTA" -bed "$BED_FILE" -s -name -fo "$GENE_FASTA"
+    echo "Gene sequences extracted."
+else
+    echo "$GENE_FASTA already exists. Skipping sequence extraction."
 fi
 
-echo "Sequence extraction complete"
-
 # ----------------------------
-# Step 7: Create Final CSV
+# Step 6: Create initial CSV if not done
 # ----------------------------
-
-echo "Creating final CSV..."
-TEMP_SEQ_FILE="$DATA_DIR/temp_sequences.txt"
-
-# Extract sequences to temporary file
-awk '
-/^>/ {
-    gsub(/^>/, "", $0)
-    split($0, header, ":")
-    gene_id = header[1]
-    getline
-    print gene_id "\t" $0
-}' "$GENE_FASTA" > "$TEMP_SEQ_FILE"
-
-# Combine information and create final CSV
-awk '
-BEGIN {
-    FS="\t"
-    OFS=","
-    while ((getline < "'$TEMP_SEQ_FILE'") > 0) {
-        split($0, fields, "\t")
-        sequences[fields[1]] = fields[2]
+if [ ! -f "initial_genes.csv" ]; then
+    echo "Creating initial CSV..."
+    awk '
+    /^>/ {
+        header=substr($0,2)
+        split(header,h,":")
+        gene_id=h[1]
+        getline seq
+        seqs[gene_id]=seq
+        next
     }
+    END {
+        # Nothing printed here, just storing sequences
+    }' "$GENE_FASTA" > /dev/null
+
+    awk '
+    BEGIN{
+        FS="\t"; OFS=","
+        print "gene_id,gene_name,start,end,gene_len,sequence,description"
+    }
+    FNR==NR {
+        # reading FASTA sequences
+        if($0 ~ /^>/) {
+           gene_id=substr($0,2)
+           split(gene_id,a,":")
+           gene_id=a[1]
+           getline seq
+           seqs[gene_id]=seq
+        }
+        next
+    }
+    NR>FNR {
+        # reading BED_FILE
+        gene_id=$4
+        gene_name=$7
+        start=$2+1
+        end=$3
+        gene_len=$5
+        desc=$8
+        seq="NA"
+        if(gene_id in seqs) {
+            seq=seqs[gene_id]
+        }
+        print gene_id,gene_name,start,end,gene_len,seq,desc
+    }
+    ' "$GENE_FASTA" "$BED_FILE" > initial_genes.csv
+    echo "Initial CSV created."
+else
+    echo "initial_genes.csv already exists. Skipping initial CSV creation."
+fi
+
+# ----------------------------
+# Limit to first 5 genes for testing
+# ----------------------------
+echo "Filtering to first 5 genes..."
+head -n 6 initial_genes.csv > test_genes.csv
+echo "Test file created: test_genes.csv"
+
+# ----------------------------
+# Step 7: Fetch Official Full Name and Summary from NCBI for these 5 genes
+# ----------------------------
+TEMP_IDS=$(mktemp)
+cut -d',' -f1 test_genes.csv | tail -n +2 | sort | uniq > "$TEMP_IDS"
+
+TEMP_XML=$(mktemp)
+TEMP_PARSED=$(mktemp)
+
+echo "gene_id,official_full_name,official_summary" > "$TEMP_PARSED"
+
+while read -r GENE_ID; do
+    [ -z "$GENE_ID" ] && continue
+    echo "Processing GENE_ID: $GENE_ID"
+
+    efetch -db gene -id "$GENE_ID" -format docsum > "$TEMP_XML" 2>/dev/null || {
+        echo "Error fetching $GENE_ID" >&2
+        continue
+    }
+
+    OFFICIAL_NAME=$(xmllint --xpath 'string(//DocumentSummary/Item[@Name="OfficialFullName"])' "$TEMP_XML" 2>/dev/null || true)
+    [ -z "$OFFICIAL_NAME" ] && OFFICIAL_NAME=$(xmllint --xpath 'string(//DocumentSummary/Item[@Name="Description"])' "$TEMP_XML" 2>/dev/null || true)
+
+    OFFICIAL_SUMMARY=$(xmllint --xpath 'string(//DocumentSummary/Item[@Name="Summary"])' "$TEMP_XML" 2>/dev/null || true)
+
+    # If no summary found via docsum, attempt HTML scraping
+    if [ -z "$OFFICIAL_SUMMARY" ]; then
+        echo "No summary in docsum, fetching HTML page..."
+        wget -qO gene_page.html "https://www.ncbi.nlm.nih.gov/gene/${GENE_ID}"
+
+        OFFICIAL_SUMMARY=$(xmllint --html --xpath 'string(//dt[normalize-space(text())="Summary"]/following-sibling::dd[1])' gene_page.html 2>/dev/null || true)
+
+        if [ -z "$OFFICIAL_SUMMARY" ]; then
+            OFFICIAL_SUMMARY=""
+            echo "No HTML summary found for GENE_ID: $GENE_ID"
+        else
+            echo "HTML summary found for GENE_ID: $GENE_ID"
+        fi
+    else
+        echo "Summary found in docsum XML for GENE_ID: $GENE_ID"
+    fi
+
+    [ -z "$OFFICIAL_NAME" ] && OFFICIAL_NAME="NA"
+
+    OFFICIAL_NAME=$(echo "$OFFICIAL_NAME" | sed 's/"/""/g')
+    OFFICIAL_SUMMARY=$(echo "$OFFICIAL_SUMMARY" | sed 's/"/""/g')
+
+    echo "$GENE_ID,\"$OFFICIAL_NAME\",\"$OFFICIAL_SUMMARY\"" >> "$TEMP_PARSED"
+    echo "Finished processing GENE_ID: $GENE_ID"
+    sleep 0.3
+done < "$TEMP_IDS"
+
+echo "Merging summary info into final CSV..."
+awk -F',' 'NR==FNR {
+    if(NR>1){
+        gene_id=$1; fullname=$2; summary=$3
+        names[gene_id]=fullname
+        sums[gene_id]=summary
+    }
+    next
 }
-{
-    gene_id = $4
-    gene_name = $7
-    start = $2 + 1
-    end = $3
-    len = $5
-    sequence = sequences[gene_id]
-    if (sequence == "") sequence = "NA"
-    
-    # Handle the summary field
-    summary = $8
-    gsub(/"/, "\"\"", summary)
-    summary = "\"" summary "\""
-    
-    print gene_id, gene_name, start, end, len, sequence, summary
-}' "$BED_FILE" > "$OUTPUT_CSV"
+NR>FNR {
+    gene_id=$1
+    if(gene_id in names){
+        print $0","names[gene_id]","sums[gene_id]
+    } else {
+        print $0",NA,NA"
+    }
+}' "$TEMP_PARSED" test_genes.csv > "$OUTPUT_CSV"
 
-# Clean up
-rm -f "$TEMP_SEQ_FILE"
+echo "Test processing complete. Output for first 5 genes: $OUTPUT_CSV"
 
-echo "Processing complete. Output saved to $OUTPUT_CSV"
-echo "Final CSV file size: $(ls -lh "$OUTPUT_CSV")"
-echo "First few lines of CSV:"
-head -n 5 "$OUTPUT_CSV"
+# Cleanup
+rm -f "$TEMP_IDS" "$TEMP_XML" "$TEMP_PARSED" test_genes.csv
+echo "Script finished."
