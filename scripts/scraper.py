@@ -4,6 +4,10 @@ import csv
 import logging
 import time
 from urllib.parse import urljoin
+import subprocess
+import pandas as pd
+import numpy as np
+from io import StringIO
 
 # Configure logging
 logging.basicConfig(
@@ -12,6 +16,30 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     level=logging.INFO  
 )
+
+def get_gene_summary(gene_ids):
+    if isinstance(gene_ids, list):
+        gene_ids = ','.join([str(gid) for gid in gene_ids])
+    
+    cmd = (
+        f"esearch -db gene -query {gene_ids} | "
+        f"efetch -format docsum | "
+        f"xtract -pattern DocumentSummary -element Id Name ScientificName TaxID CommonName Summary"
+    )
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, shell=True, text=True)
+    
+    data = StringIO(result.stdout)
+    names = ["gene_id", "gene_name", "org_name", "org_id", "common_org_name", "summary"]
+    df = pd.read_csv(data, sep="\t", header=None, names=names)
+    
+    df['tag'] = np.where(
+        (df.summary.isnull()) | (df.summary.astype(str).str.startswith('DISCONTINUED')),
+        'no_summary',
+        'has_summary'
+    )
+    df = df.loc[:, ['tag', 'gene_id', 'gene_name', 'org_name', 'common_org_name', 'summary']]
+    
+    return df
 
 def get_dict():
     ref = {
@@ -196,7 +224,7 @@ def get_summary_and_sequence(detail_url, session, headers):
         headers (dict): The headers to use for the request
     
     Returns:
-        tuple: (summary_text, sequence_text)
+        tuple: (summary_text, sequence_text, structure_text)
     """
     try:
         logging.info(f"Fetching detail page: {detail_url}")
@@ -207,8 +235,11 @@ def get_summary_and_sequence(detail_url, session, headers):
         # Initialize variables
         summary_text = ""
         sequence_text = ""
+        structure_text = ""
         
         # Try to find the description - it's okay if we don't find it
+        # TODO: also find summary on ncbi
+        # https://www.ncbi.nlm.nih.gov/gene/?term=hsa-let-7a-1
         description_div = soup.find('div', style=lambda value: value and 'margin-left:15px' in value)
         if description_div:
             pre_tag = description_div.find('pre')
@@ -217,6 +248,7 @@ def get_summary_and_sequence(detail_url, session, headers):
                 logging.info(f"Summary found: {summary_text[:50]}...")
         
         # Try to find the sequence
+        # TODO: find ((..)).. strcuture
         sequence_div = soup.find('div', {'id': 'hairpinSequence'})
         if sequence_div:
             sequence_span = sequence_div.find('span', {'class': 'text-monospace'})
@@ -224,11 +256,11 @@ def get_summary_and_sequence(detail_url, session, headers):
                 sequence_text = sequence_span.get_text(strip=True)
                 logging.info(f"Sequence found: {sequence_text[:50]}...")
         
-        return summary_text, sequence_text
+        return summary_text, sequence_text, structure_text
             
     except requests.exceptions.Timeout:
         logging.error(f"Timeout while fetching {detail_url}")
-        return "", ""
+        return "", "", ""
         
     except requests.exceptions.HTTPError as http_err:
         logging.error(f"HTTP error while fetching {detail_url}: {http_err}")
@@ -236,11 +268,11 @@ def get_summary_and_sequence(detail_url, session, headers):
             logging.info("Rate limited, waiting 60 seconds...")
             time.sleep(60)
             return get_summary_and_sequence(detail_url, session, headers)
-        return "", ""
+        return "", "", ""
         
     except Exception as err:
         logging.error(f"Error while fetching {detail_url}: {err}")
-        return "", ""
+        return "", "", ""
 
 # output_csv='miRNA_human_with_sequence.csv'
 def scrape_mirbase_with_sequence(url, output_csv='miRNA_Arabidopsis_with_sequence.csv', max_rows=3000):
@@ -330,7 +362,7 @@ def scrape_mirbase_with_sequence(url, output_csv='miRNA_Arabidopsis_with_sequenc
             summary = ""
             sequence = ""
             if detail_url:
-                summary, sequence = get_summary_and_sequence(detail_url, session, headers)
+                summary, sequence, structure = get_summary_and_sequence(detail_url, session, headers)
                 time.sleep(1)  # Polite delay between requests
             
             seq_len = len(sequence)
@@ -341,6 +373,7 @@ def scrape_mirbase_with_sequence(url, output_csv='miRNA_Arabidopsis_with_sequenc
                 'Start': start,
                 'End': end,
                 'Sequence': sequence,
+                'Seq_structure': structure,
                 'Seq_len': seq_len,
                 'Summary': summary,
                 'Summary_len': sum_len,
