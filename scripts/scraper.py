@@ -215,7 +215,7 @@ def get_dict():
 
 def get_summary_and_sequence(detail_url, session, headers):
     """
-    Fetches the summary and sequence from the miRNA detail page.
+    Fetches the summary, sequence, and structure from the miRNA detail page.
     Empty summary is considered valid.
     
     Parameters:
@@ -237,9 +237,7 @@ def get_summary_and_sequence(detail_url, session, headers):
         sequence_text = ""
         structure_text = ""
         
-        # Try to find the description - it's okay if we don't find it
-        # TODO: also find summary on ncbi
-        # https://www.ncbi.nlm.nih.gov/gene/?term=hsa-let-7a-1
+        # Try to find the description
         description_div = soup.find('div', style=lambda value: value and 'margin-left:15px' in value)
         if description_div:
             pre_tag = description_div.find('pre')
@@ -247,14 +245,21 @@ def get_summary_and_sequence(detail_url, session, headers):
                 summary_text = pre_tag.get_text(separator=' ', strip=True)
                 logging.info(f"Summary found: {summary_text[:50]}...")
         
-        # Try to find the sequence
-        # TODO: find ((..)).. strcuture
+        # Try to find the sequence and structure
         sequence_div = soup.find('div', {'id': 'hairpinSequence'})
         if sequence_div:
-            sequence_span = sequence_div.find('span', {'class': 'text-monospace'})
-            if sequence_span:
-                sequence_text = sequence_span.get_text(strip=True)
+            # Find all text-monospace spans
+            monospace_spans = sequence_div.find_all('span', {'class': 'text-monospace'})
+            
+            # First span contains the sequence
+            if len(monospace_spans) > 0:
+                sequence_text = monospace_spans[0].get_text(strip=True)
                 logging.info(f"Sequence found: {sequence_text[:50]}...")
+            
+            # Second span contains the structure
+            if len(monospace_spans) > 1:
+                structure_text = monospace_spans[1].get_text(strip=True)
+                logging.info(f"Structure found: {structure_text[:50]}...")
         
         return summary_text, sequence_text, structure_text
             
@@ -275,7 +280,7 @@ def get_summary_and_sequence(detail_url, session, headers):
         return "", "", ""
 
 # output_csv='miRNA_human_with_sequence.csv'
-def scrape_mirbase_with_sequence(url, output_csv='miRNA_Arabidopsis_with_sequence.csv', max_rows=3000):
+def scrape_mirbase_with_sequence(url, output_csv='miRNA_human_with_sequence.csv', max_rows=3000):
     """
     Scrapes Start, End, Name, Sequence, and Summary information from miRBase and saves to a CSV file.
     """
@@ -388,7 +393,7 @@ def scrape_mirbase_with_sequence(url, output_csv='miRNA_Arabidopsis_with_sequenc
             return
         
         with open(output_csv, mode='w', newline='', encoding='utf-8') as csvfile:
-            fieldnames = ['Name', 'Start', 'End', 'Sequence', 'Seq_len', 'Summary', 'Summary_len', 'Chr', 'Strand']
+            fieldnames = ['Name', 'Start', 'End', 'Sequence', 'Seq_structure', 'Seq_len', 'Summary', 'Summary_len', 'Chr', 'Strand']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             
             writer.writeheader()
@@ -405,7 +410,7 @@ def scrape_mirbase_with_sequence(url, output_csv='miRNA_Arabidopsis_with_sequenc
 
 if __name__ == "__main__":
     # for human
-    # mirbase_url = "https://mirbase.org/browse/results/?organism=hsa"
+    mirbase_url = "https://mirbase.org/browse/results/?organism=hsa"
     
     # for mouse
     # mirbase_url = "https://mirbase.org/browse/results/?organism=mmu"
@@ -420,8 +425,6 @@ if __name__ == "__main__":
     # mirbase_url = "https://mirbase.org/browse/results/?organism=cel"
     
     # for Arabidopsis
-    mirbase_url = "https://mirbase.org/browse/results/?organism=ath"
+    # mirbase_url = "https://mirbase.org/browse/results/?organism=ath"
     
-    scrape_mirbase_with_sequence(mirbase_url)
-    
-    
+    scrape_mirbase_with_sequence(mirbase_url)       
