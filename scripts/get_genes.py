@@ -109,8 +109,8 @@ with gzip.open(gff3_path, 'rt') as f:
 logging.info(f"Found {len(genes)} genes.")
 
 # debug usage
-genes = genes[:50]
-logging.info("Processing only the first 50 genes for testing purposes.")
+# genes = genes[:50]
+# logging.info("Processing only the first 50 genes for testing purposes.")
 
 # ----------------------------
 # Step 3: Extract sequences from FASTA
