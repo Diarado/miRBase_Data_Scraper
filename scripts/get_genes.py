@@ -7,10 +7,13 @@ import csv
 import time
 import logging
 from typing import Dict, List
+import math
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib3.util.retry import Retry
 
 # Toggle between human and E. coli by commenting/uncommenting:
-# ORGANISM = "human"
-ORGANISM = "ecoli"
+ORGANISM = "human"
+# ORGANISM = "ecoli"
 
 # Configuration dictionary for different organisms
 ORGANISM_CONFIG = {
@@ -22,7 +25,8 @@ ORGANISM_CONFIG = {
         "gff3_suffix": "_genomic.gff.gz",
         "fasta_suffix": "_genomic.fna.gz",
         "output_prefix": "human_genes",
-        "email": "jt828@cornell.edu"
+        "email": "jt828@cornell.edu",
+        "batch_size": 5000
     },
     "ecoli": {
         "log_dir": "./ecoli_reference",
@@ -32,9 +36,21 @@ ORGANISM_CONFIG = {
         "gff3_suffix": "_genomic.gff.gz",
         "fasta_suffix": "_genomic.fna.gz",
         "output_prefix": "ecoli_genes",
-        "email": "jt828@cornell.edu"
+        "email": "jt828@cornell.edu",
+        "batch_size": 5000
     }
 }
+
+def create_session_with_retries() -> requests.Session:
+    """Create a session with retry logic"""
+    session = requests.Session()
+    retries = Retry(
+        total=5,  # number of retries
+        backoff_factor=1,  # wait 1, 2, 4, 8, 16 seconds between retries
+        status_forcelist=[500, 502, 503, 504]  # retry on these HTTP status codes
+    )
+    session.mount('https://', HTTPAdapter(max_retries=retries))
+    return session
 
 def setup_logging(config: Dict) -> None:
     """Set up logging configuration"""
@@ -76,7 +92,8 @@ def download_file(url: str, dest: str) -> None:
     if not os.path.exists(dest):
         logging.info(f"Downloading {url} ...")
         try:
-            r = requests.get(url, stream=True)
+            session = create_session_with_retries()
+            r = session.get(url, stream=True)
             r.raise_for_status()
             total_size = int(r.headers.get('content-length', 0))
             block_size = 8192
@@ -88,11 +105,14 @@ def download_file(url: str, dest: str) -> None:
                     downloaded += len(chunk)
                     if total_size > 0:
                         percent = (downloaded / total_size) * 100
-                        logging.info(f"Download progress: {percent:.1f}%")
+                        if downloaded % (5 * block_size) == 0:  # Log every 5 blocks
+                            logging.info(f"Download progress: {percent:.1f}%")
                         
             logging.info(f"Downloaded {dest}")
         except Exception as e:
             logging.error(f"Error downloading {url}: {str(e)}")
+            if os.path.exists(dest):
+                os.remove(dest)  # Clean up partial download
             raise
     else:
         logging.info(f"{dest} already exists. Skipping download.")
@@ -180,10 +200,12 @@ def fetch_gene_summary(gene_id: str, email: str, max_retries: int = 5) -> str:
         "retmode": "json",
         "email": email
     }
+    
+    session = create_session_with_retries()
 
     for attempt in range(max_retries):
         try:
-            resp = requests.get(base_url, params=params)
+            resp = session.get(base_url, params=params)
             
             if resp.status_code == 200:
                 data = resp.json()
@@ -194,7 +216,7 @@ def fetch_gene_summary(gene_id: str, email: str, max_retries: int = 5) -> str:
                 
                 words = summary.split()
                 first_10_words = ' '.join(words[:10]) if words else "(no summary)"
-                logging.info(f"Fetched summary for {gene_id}. First 10 words: {first_10_words}")
+                logging.info(f"Successfully fetched summary for {gene_id} from {base_url}. First 10 words: {first_10_words}")
                 return summary
                 
             elif resp.status_code == 429:
@@ -212,10 +234,10 @@ def fetch_gene_summary(gene_id: str, email: str, max_retries: int = 5) -> str:
     logging.warning(f"Failed to fetch summary for {gene_id} after {max_retries} attempts")
     return ""
 
-def write_output(genes: List[Dict], config: Dict) -> None:
-    """Write results to CSV file"""
-    output_file = os.path.join(config["log_dir"], f"{config['output_prefix']}_with_summaries.csv")
-    logging.info(f"Writing output to {output_file}...")
+def write_batch_output(genes: List[Dict], batch_num: int, config: Dict) -> None:
+    """Write results for a single batch to CSV file"""
+    output_file = os.path.join(config["log_dir"], f"{config['output_prefix']}_batch_{batch_num}.csv")
+    logging.info(f"Writing batch {batch_num} to {output_file}...")
     
     try:
         with open(output_file, 'w', newline='', encoding='utf-8') as outfile:
@@ -231,54 +253,103 @@ def write_output(genes: List[Dict], config: Dict) -> None:
                     g["sequence"],
                     g.get("summary", "")
                 ])
-        logging.info("Output file written successfully.")
+        logging.info(f"Batch {batch_num} written successfully.")
     except Exception as e:
-        logging.error(f"Error writing output: {str(e)}")
+        logging.error(f"Error writing batch {batch_num}: {str(e)}")
+        raise
+
+def process_gene_batch(genes: List[Dict], batch_num: int, config: Dict) -> None:
+    """Process a batch of genes including fetching summaries and writing output"""
+    logging.info(f"Processing batch {batch_num} with {len(genes)} genes...")
+    
+    # Fetch summaries for the batch
+    for i, g in enumerate(genes):
+        g["summary"] = fetch_gene_summary(g["gene_id"], config["email"])
+        if i % 10 == 0 and i > 0:
+            time.sleep(1)  # Rate limiting
+    
+    # Write batch output
+    write_batch_output(genes, batch_num, config)
+
+def combine_batch_files(config: Dict, total_batches: int) -> None:
+    """Combine all batch files into a single output file"""
+    final_output = os.path.join(config["log_dir"], f"{config['output_prefix']}_combined.csv")
+    logging.info(f"Combining {total_batches} batch files into {final_output}...")
+    
+    try:
+        # Write header to combined file
+        with open(final_output, 'w', newline='', encoding='utf-8') as outfile:
+            writer = csv.writer(outfile)
+            writer.writerow(["gene_id", "gene_name", "start", "end", "gene_len", "sequence", "summary"])
+            
+            # Append each batch file
+            for batch_num in range(total_batches):
+                batch_file = os.path.join(config["log_dir"], f"{config['output_prefix']}_batch_{batch_num}.csv")
+                if os.path.exists(batch_file):
+                    with open(batch_file, 'r', encoding='utf-8') as batch:
+                        next(batch)  # Skip header
+                        for line in batch:
+                            outfile.write(line)
+                    
+                    # Optionally remove batch file after combining
+                    os.remove(batch_file)
+                else:
+                    logging.warning(f"Batch file {batch_file} not found")
+                
+        logging.info("All batch files combined successfully.")
+    except Exception as e:
+        logging.error(f"Error combining batch files: {str(e)}")
         raise
 
 def main():
-    """Main execution function"""
-    # Get configuration for selected organism
+    """Main execution function with batch processing"""
     if ORGANISM not in ORGANISM_CONFIG:
         raise ValueError(f"Unsupported organism: {ORGANISM}")
     
     config = ORGANISM_CONFIG[ORGANISM]
-    
-    # Setup logging
     setup_logging(config)
-    logging.info(f"Starting processing for {ORGANISM}")
+    logging.info(f"Starting batch processing for {ORGANISM}")
     
     try:
         # Create output directory
         os.makedirs(config["log_dir"], exist_ok=True)
         
-        # Get file paths
+        # Get and download files
         gff3_url, fasta_url, gff3_path, fasta_path = get_file_paths(config)
-        
-        # Download files
         download_file(gff3_url, gff3_path)
         download_file(fasta_url, fasta_path)
         
-        # Parse GFF3
+        # Parse GFF3 and extract sequences
         genes = parse_gff3(gff3_path)
-        
-        # Extract sequences
         genes = extract_sequences(genes, fasta_path, config["log_dir"])
         
-        # test
-        # genes = genes[:5]
+        # Calculate number of batches
+        batch_size = config["batch_size"]
+        total_batches = math.ceil(len(genes) / batch_size)
+        logging.info(f"Processing {len(genes)} genes in {total_batches} batches of {batch_size}")
         
-        # Fetch summaries
-        logging.info("Fetching gene summaries...")
-        for i, g in enumerate(genes):
-            g["summary"] = fetch_gene_summary(g["gene_id"], config["email"])
-            if i % 10 == 0 and i > 0:
-                time.sleep(1)
+        # Process each batch
+        for batch_num in range(total_batches):
+            start_idx = batch_num * batch_size
+            end_idx = min((batch_num + 1) * batch_size, len(genes))
+            batch_genes = genes[start_idx:end_idx]
+            
+            # Skip if batch file already exists
+            batch_file = os.path.join(config["log_dir"], f"{config['output_prefix']}_batch_{batch_num}.csv")
+            if os.path.exists(batch_file):
+                logging.info(f"Batch {batch_num} already exists, skipping...")
+                continue
+            
+            process_gene_batch(batch_genes, batch_num, config)
+            
+            # Add delay between batches
+            if batch_num < total_batches - 1:
+                time.sleep(2)
         
-        # Write output
-        write_output(genes, config)
+        # Combine all batch files
+        combine_batch_files(config, total_batches)
         
-        logging.info("Processing complete.")
+        logging.info("All processing complete.")
         
     except Exception as e:
         logging.error(f"Error in main execution: {str(e)}")
