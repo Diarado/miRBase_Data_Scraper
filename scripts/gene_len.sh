@@ -201,15 +201,16 @@ fi
 # ----------------------------
 # Limit to first 5 genes for testing
 # ----------------------------
-echo "Filtering to first 5 genes..."
-head -n 6 initial_genes.csv > test_genes.csv
-echo "Test file created: test_genes.csv"
+# echo "Filtering to first 5 genes..."
+# head -n 3 initial_genes.csv > test_genes.csv
+# echo "Test file created: test_genes.csv"
 
 # ----------------------------
-# Step 7: Fetch Official Full Name and Summary from NCBI for these 5 genes
+# Step 7: Fetch Official Full Name and Summary from NCBI for ALL genes
 # ----------------------------
+echo "Fetching official full name and summary for all genes from NCBI..."
 TEMP_IDS=$(mktemp)
-cut -d',' -f1 test_genes.csv | tail -n +2 | sort | uniq > "$TEMP_IDS"
+cut -d',' -f1 initial_genes.csv | tail -n +2 | sort | uniq > "$TEMP_IDS"
 
 TEMP_XML=$(mktemp)
 TEMP_PARSED=$(mktemp)
@@ -220,31 +221,36 @@ while read -r GENE_ID; do
     [ -z "$GENE_ID" ] && continue
     echo "Processing GENE_ID: $GENE_ID"
 
-    efetch -db gene -id "$GENE_ID" -format docsum > "$TEMP_XML" 2>/dev/null || {
-        echo "Error fetching $GENE_ID" >&2
-        continue
-    }
-
-    OFFICIAL_NAME=$(xmllint --xpath 'string(//DocumentSummary/Item[@Name="OfficialFullName"])' "$TEMP_XML" 2>/dev/null || true)
-    [ -z "$OFFICIAL_NAME" ] && OFFICIAL_NAME=$(xmllint --xpath 'string(//DocumentSummary/Item[@Name="Description"])' "$TEMP_XML" 2>/dev/null || true)
-
-    OFFICIAL_SUMMARY=$(xmllint --xpath 'string(//DocumentSummary/Item[@Name="Summary"])' "$TEMP_XML" 2>/dev/null || true)
-
-    # If no summary found via docsum, attempt HTML scraping
-    if [ -z "$OFFICIAL_SUMMARY" ]; then
-        echo "No summary in docsum, fetching HTML page..."
-        wget -qO gene_page.html "https://www.ncbi.nlm.nih.gov/gene/${GENE_ID}"
-
-        OFFICIAL_SUMMARY=$(xmllint --html --xpath 'string(//dt[normalize-space(text())="Summary"]/following-sibling::dd[1])' gene_page.html 2>/dev/null || true)
-
-        if [ -z "$OFFICIAL_SUMMARY" ]; then
-            OFFICIAL_SUMMARY=""
-            echo "No HTML summary found for GENE_ID: $GENE_ID"
-        else
-            echo "HTML summary found for GENE_ID: $GENE_ID"
-        fi
+    # Use timeout to avoid hanging forever. If it takes more than 30s, kill it.
+    if ! timeout 30 efetch -db gene -id "$GENE_ID" -format docsum > "$TEMP_XML" 2>/dev/null; then
+        echo "Error: efetch timed out or failed for $GENE_ID"
+        OFFICIAL_NAME="NA"
+        OFFICIAL_SUMMARY=""
     else
-        echo "Summary found in docsum XML for GENE_ID: $GENE_ID"
+        OFFICIAL_NAME=$(xmllint --xpath 'string(//DocumentSummary/Item[@Name="OfficialFullName"])' "$TEMP_XML" 2>/dev/null || true)
+        [ -z "$OFFICIAL_NAME" ] && OFFICIAL_NAME=$(xmllint --xpath 'string(//DocumentSummary/Item[@Name="Description"])' "$TEMP_XML" 2>/dev/null || true)
+        OFFICIAL_SUMMARY=$(xmllint --xpath 'string(//DocumentSummary/Item[@Name="Summary"])' "$TEMP_XML" 2>/dev/null || true)
+
+        # If no summary found via docsum, attempt HTML scraping with timeout
+        if [ -z "$OFFICIAL_SUMMARY" ]; then
+            echo "No summary in docsum, fetching HTML page..."
+
+            # Use timeout for wget as well, --timeout sets a network timeout, but we can wrap in 'timeout' too
+            if ! timeout 30 wget -qO gene_page.html "https://www.ncbi.nlm.nih.gov/gene/${GENE_ID}"; then
+                echo "Error: wget timed out or failed for $GENE_ID"
+                OFFICIAL_SUMMARY=""
+            else
+                OFFICIAL_SUMMARY=$(xmllint --html --xpath 'string(//dt[normalize-space(text())="Summary"]/following-sibling::dd[1])' gene_page.html 2>/dev/null || true)
+                if [ -z "$OFFICIAL_SUMMARY" ]; then
+                    OFFICIAL_SUMMARY=""
+                    echo "No HTML summary found for GENE_ID: $GENE_ID"
+                else
+                    echo "HTML summary found for GENE_ID: $GENE_ID"
+                fi
+            fi
+        else
+            echo "Summary found in docsum XML for GENE_ID: $GENE_ID"
+        fi
     fi
 
     [ -z "$OFFICIAL_NAME" ] && OFFICIAL_NAME="NA"
@@ -273,10 +279,9 @@ NR>FNR {
     } else {
         print $0",NA,NA"
     }
-}' "$TEMP_PARSED" test_genes.csv > "$OUTPUT_CSV"
+}' "$TEMP_PARSED" initial_genes.csv > "$OUTPUT_CSV"
 
-echo "Test processing complete. Output for first 5 genes: $OUTPUT_CSV"
+echo "Processing complete. Output for all genes: $OUTPUT_CSV"
 
-# Cleanup
-rm -f "$TEMP_IDS" "$TEMP_XML" "$TEMP_PARSED" test_genes.csv
+rm -f "$TEMP_IDS" "$TEMP_XML" "$TEMP_PARSED" gene_page.html
 echo "Script finished."
