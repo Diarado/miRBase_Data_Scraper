@@ -56,6 +56,7 @@ def setup_logging(config: Dict) -> None:
     """Set up logging configuration"""
     log_dir = config["log_dir"]
     os.makedirs(log_dir, exist_ok=True)
+    
     log_file = os.path.join(log_dir, f"{config['output_prefix']}.log")
 
     logging.basicConfig(
