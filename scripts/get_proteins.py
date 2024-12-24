@@ -1,5 +1,5 @@
 # get amino acid sequence and description, just like get_genes
-# We only collect data from 1.1, 2024 to today
+# We only collect all data after 01/01/2024
 from Bio import Entrez
 from Bio import SeqIO
 import time
@@ -14,13 +14,10 @@ def setup_logging(timestamp):
     """
     Set up logging configuration
     """
-    # Create logs directory if it doesn't exist
     Path('logs').mkdir(exist_ok=True)
     
-    # Configure logging
     log_filename = f'logs/protein_fetch_{timestamp}.log'
     
-    # Set up logging to both file and console
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
@@ -35,31 +32,59 @@ def setup_logging(timestamp):
     
     return log_filename
 
-def search_recent_proteins(start_date="2024/01/01"):
+def search_recent_proteins(start=0):
     """
-    Search for proteins added or updated after the specified date
+    Search for proteins added or updated after the specified date with pagination
     """
-    logging.info(f"Searching for proteins modified after {start_date}")
-    Entrez.email = "your_email@example.com"  
+    logging.info(f"Searching for proteins modified after {START_DATE} - batch starting at {start}")
+    Entrez.email = EMAIL
     
     try:
         search_handle = Entrez.esearch(
             db="protein",
-            term=f"{start_date}[MDAT]:3000[MDAT]",
-            retmax=10, # TODO
+            term=f"{START_DATE}[MDAT]:3000[MDAT]",
+            retmax=BATCH_SIZE,
+            retstart=start,
             sort="modification date"
         )
         
         search_results = Entrez.read(search_handle)
         search_handle.close()
         
-        protein_count = len(search_results["IdList"])
-        logging.info(f"Found {protein_count} proteins")
-        return search_results["IdList"]
+        total_count = int(search_results["Count"])
+        protein_ids = search_results["IdList"]
+        
+        logging.info(f"Found {len(protein_ids)} proteins in current batch (Total: {total_count})")
+        return protein_ids, total_count
     
     except Exception as e:
         logging.error(f"Error in search: {str(e)}")
-        return []
+        return [], 0
+
+def process_protein_batch(protein_ids, existing_data=None):
+    """
+    Process a batch of protein IDs
+    """
+    protein_data_list = []
+    successful_fetches = 0
+    failed_fetches = 0
+    
+    for protein_id in protein_ids:
+        time.sleep(0.5)  # NCBI rate limit compliance
+        
+        # Skip if already processed
+        if existing_data is not None and any(d['protein_id'] == protein_id for d in existing_data):
+            logging.info(f"Skipping already processed protein ID: {protein_id}")
+            continue
+            
+        protein_data = get_protein_info(protein_id)
+        if protein_data:
+            protein_data_list.append(protein_data)
+            successful_fetches += 1
+        else:
+            failed_fetches += 1
+    
+    return protein_data_list, successful_fetches, failed_fetches
 
 def get_protein_info(protein_id):
     """
@@ -78,14 +103,12 @@ def get_protein_info(protein_id):
         record = SeqIO.read(handle, "genbank")
         handle.close()
         
-        # Extract features and annotations
         features_list = []
         for feature in record.features:
             if feature.type in ["Region", "Domain", "Site"]:
                 if 'note' in feature.qualifiers:
                     features_list.append(feature.qualifiers['note'][0])
         
-        # Get protein function from annotations
         function = record.annotations.get('function', '')
         if not function:
             for feature in record.features:
@@ -107,113 +130,111 @@ def get_protein_info(protein_id):
             'accessions': '; '.join(record.annotations.get('accessions', [])),
         }
         
-        logging.info(f"Successfully retrieved data for protein ID: {protein_id}")
         return protein_data
         
     except Exception as e:
         logging.error(f"Error fetching protein {protein_id}: {str(e)}")
         return None
 
-def save_sequences_file(protein_data_list, timestamp):
+def save_intermediate_results(protein_data_list, timestamp):
     """
-    Save just the sequences in a separate file
+    Save intermediate results to prevent data loss
     """
-    fasta_filename = f'protein_sequences.fasta'
-    logging.info(f"Saving sequences to FASTA file: {fasta_filename}")
-    
+    intermediate_file = f'output/protein_data_intermediate_{timestamp}.csv'
     try:
-        with open(fasta_filename, 'w') as f:
-            for data in protein_data_list:
-                if data:
-                    f.write(f">{data['protein_id']} {data['description']}\n")
-                    sequence = data['sequence']
-                    for i in range(0, len(sequence), 60):
-                        f.write(sequence[i:i+60] + '\n')
-        
-        logging.info(f"Successfully saved {len(protein_data_list)} sequences to FASTA file")
-        return fasta_filename
+        if protein_data_list:
+            df = pd.DataFrame(protein_data_list)
+            df.to_csv(intermediate_file, index=False)
+            logging.info(f"Saved intermediate results to {intermediate_file}")
     except Exception as e:
-        logging.error(f"Error saving FASTA file: {str(e)}")
-        return None
+        logging.error(f"Error saving intermediate results: {str(e)}")
 
-def save_to_csv(protein_data_list, timestamp):
+def load_intermediate_results(timestamp):
     """
-    Save protein data to CSV file
+    Load intermediate results if they exist
     """
-    csv_filename = f'protein_data.csv'
-    logging.info(f"Saving data to CSV file: {csv_filename}")
-    
+    intermediate_file = f'output/protein_data_intermediate_{timestamp}.csv'
+    try:
+        if Path(intermediate_file).exists():
+            df = pd.read_csv(intermediate_file)
+            return df.to_dict('records')
+    except Exception as e:
+        logging.error(f"Error loading intermediate results: {str(e)}")
+    return []
+
+def save_final_results(protein_data_list, timestamp):
+    """
+    Save final results to CSV file
+    """
+    csv_filename = f'output/protein_data_{timestamp}.csv'
     try:
         df = pd.DataFrame(protein_data_list)
-        
-        # Reorder columns for better readability
         columns_order = [
             'protein_id', 'description', 'gene_name', 'organism',
             'length', 'function', 'features', 'taxonomy',
             'date_modified', 'accessions', 'sequence'
         ]
-        
         df = df[columns_order]
         df.to_csv(csv_filename, index=False)
-        
-        logging.info(f"Successfully saved {len(protein_data_list)} entries to CSV file")
+        logging.info(f"Saved final CSV to {csv_filename}")
         return csv_filename
     except Exception as e:
-        logging.error(f"Error saving CSV file: {str(e)}")
+        logging.error(f"Error saving final CSV: {str(e)}")
         return None
 
+# Configuration
+BATCH_SIZE = 5000  # Number of proteins to process in each batch
+EMAIL = "your_email@example.com"  # Your email for NCBI
+START_DATE = "2024/01/01"  # Start date for protein search
+
 def main():
-    # Generate timestamp for file names
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    
-    # Set up logging
     log_filename = setup_logging(timestamp)
-    
-    # Create output directory if it doesn't exist
     Path('output').mkdir(exist_ok=True)
     
     try:
-        # Search for proteins
-        protein_ids = search_recent_proteins()
+        start_position = 0
+        total_successful_fetches = 0
+        total_failed_fetches = 0
+        all_protein_data = load_intermediate_results(timestamp)
         
-        if not protein_ids:
-            logging.error("No proteins found or search failed")
-            return
+        # Get initial batch and total count
+        protein_ids, total_count = search_recent_proteins(start=start_position)
         
-        # List to store all protein data
-        protein_data_list = []
-        successful_fetches = 0
-        failed_fetches = 0
-        
-        # Process each protein
-        total_proteins = len(protein_ids)
-        for i, protein_id in enumerate(protein_ids, 1):
-            logging.info(f"Processing protein {i} of {total_proteins} ({(i/total_proteins)*100:.1f}%)")
+        while protein_ids:
+            logging.info(f"\n=== Processing batch starting at position {start_position} ===")
             
-            time.sleep(0.5)  # Respect NCBI rate limits
+            # Process current batch
+            batch_data, successful, failed = process_protein_batch(protein_ids, all_protein_data)
             
-            protein_data = get_protein_info(protein_id)
-            if protein_data:
-                protein_data_list.append(protein_data)
-                successful_fetches += 1
-            else:
-                failed_fetches += 1
+            # Update totals
+            total_successful_fetches += successful
+            total_failed_fetches += failed
+            all_protein_data.extend(batch_data)
+            
+            # Save intermediate results
+            save_intermediate_results(all_protein_data, timestamp)
+            
+            # Progress report
+            progress = (start_position + BATCH_SIZE) / total_count * 100
+            logging.info(f"Progress: {progress:.1f}% ({start_position + BATCH_SIZE}/{total_count})")
+            
+            # Get next batch
+            start_position += BATCH_SIZE
+            protein_ids, _ = search_recent_proteins(start=start_position)
+            
+            if not protein_ids or start_position >= total_count:
+                break
         
-        # Save results
-        csv_file = save_to_csv(protein_data_list, timestamp)
-        # fasta_file = save_sequences_file(protein_data_list, timestamp)
+        # Save final results
+        save_final_results(all_protein_data, timestamp)
         
         # Log summary statistics
-        logging.info("\n=== Summary Statistics ===")
-        logging.info(f"Total proteins processed: {total_proteins}")
-        logging.info(f"Successful fetches: {successful_fetches}")
-        logging.info(f"Failed fetches: {failed_fetches}")
-        logging.info(f"Success rate: {(successful_fetches/total_proteins)*100:.1f}%")
-        
-        logging.info("\n=== Output Files ===")
-        logging.info(f"CSV file: {csv_file}")
-        # logging.info(f"FASTA file: {fasta_file}")
-        logging.info(f"Log file: {log_filename}")
+        logging.info("\n=== Final Summary ===")
+        logging.info(f"Total proteins processed: {total_successful_fetches + total_failed_fetches}")
+        logging.info(f"Successful fetches: {total_successful_fetches}")
+        logging.info(f"Failed fetches: {total_failed_fetches}")
+        logging.info(f"Success rate: {(total_successful_fetches/(total_successful_fetches + total_failed_fetches))*100:.1f}%")
         
     except Exception as e:
         logging.error(f"Critical error in main execution: {str(e)}")
