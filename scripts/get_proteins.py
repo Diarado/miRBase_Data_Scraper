@@ -9,6 +9,7 @@ import pandas as pd
 import logging
 import sys
 from pathlib import Path
+from glob import glob
 
 def setup_logging(timestamp):
     """
@@ -31,6 +32,24 @@ def setup_logging(timestamp):
     logging.info(f"Log file created at: {log_filename}")
     
     return log_filename
+
+def load_all_processed_proteins():
+    """
+    Load all protein IDs that have been processed from existing intermediate files
+    """
+    processed_proteins = set()
+    intermediate_files = glob('output/protein_data_intermediate_*.csv')
+    
+    for file in intermediate_files:
+        try:
+            df = pd.read_csv(file)
+            processed_proteins.update(df['protein_id'].astype(str))
+            logging.info(f"Loaded {len(df)} proteins from {file}")
+        except Exception as e:
+            logging.error(f"Error loading intermediate file {file}: {str(e)}")
+    
+    logging.info(f"Total unique proteins already processed: {len(processed_proteins)}")
+    return processed_proteins
 
 def search_recent_proteins(start=0):
     """
@@ -61,22 +80,19 @@ def search_recent_proteins(start=0):
         logging.error(f"Error in search: {str(e)}")
         return [], 0
 
-def process_protein_batch(protein_ids, existing_data=None):
+def process_protein_batch(protein_ids, processed_proteins):
     """
-    Process a batch of protein IDs
+    Process a batch of protein IDs, skipping already processed ones
     """
     protein_data_list = []
     successful_fetches = 0
     failed_fetches = 0
     
-    for protein_id in protein_ids:
+    # Convert protein_ids to set for faster lookup
+    new_proteins = set(protein_ids) - processed_proteins
+    
+    for protein_id in new_proteins:
         time.sleep(0.5)  # NCBI rate limit compliance
-        
-        # Skip if already processed
-        if existing_data is not None and any(d['protein_id'] == protein_id for d in existing_data):
-            logging.info(f"Skipping already processed protein ID: {protein_id}")
-            continue
-            
         protein_data = get_protein_info(protein_id)
         if protein_data:
             protein_data_list.append(protein_data)
@@ -149,18 +165,28 @@ def save_intermediate_results(protein_data_list, timestamp):
     except Exception as e:
         logging.error(f"Error saving intermediate results: {str(e)}")
 
-def load_intermediate_results(timestamp):
+def combine_intermediate_files(timestamp):
     """
-    Load intermediate results if they exist
+    Combine all intermediate CSV files into final result
     """
-    intermediate_file = f'output/protein_data_intermediate_{timestamp}.csv'
-    try:
-        if Path(intermediate_file).exists():
-            df = pd.read_csv(intermediate_file)
-            return df.to_dict('records')
-    except Exception as e:
-        logging.error(f"Error loading intermediate results: {str(e)}")
-    return []
+    all_data = []
+    intermediate_files = glob('output/protein_data_intermediate_*.csv')
+    
+    for file in intermediate_files:
+        try:
+            df = pd.read_csv(file)
+            all_data.append(df)
+            logging.info(f"Loaded {len(df)} records from {file}")
+        except Exception as e:
+            logging.error(f"Error loading file {file}: {str(e)}")
+    
+    if all_data:
+        combined_df = pd.concat(all_data, ignore_index=True)
+        # Remove duplicates if any
+        combined_df.drop_duplicates(subset='protein_id', keep='last', inplace=True)
+        
+        return save_final_results(combined_df.to_dict('records'), timestamp)
+    return None
 
 def save_final_results(protein_data_list, timestamp):
     """
@@ -193,10 +219,13 @@ def main():
     Path('output').mkdir(exist_ok=True)
     
     try:
+        # Load all previously processed proteins
+        processed_proteins = load_all_processed_proteins()
+        
         start_position = 0
         total_successful_fetches = 0
         total_failed_fetches = 0
-        all_protein_data = load_intermediate_results(timestamp)
+        current_batch_data = []
         
         # Get initial batch and total count
         protein_ids, total_count = search_recent_proteins(start=start_position)
@@ -205,15 +234,18 @@ def main():
             logging.info(f"\n=== Processing batch starting at position {start_position} ===")
             
             # Process current batch
-            batch_data, successful, failed = process_protein_batch(protein_ids, all_protein_data)
+            batch_data, successful, failed = process_protein_batch(protein_ids, processed_proteins)
             
-            # Update totals
+            # Update totals and processed set
             total_successful_fetches += successful
             total_failed_fetches += failed
-            all_protein_data.extend(batch_data)
+            current_batch_data.extend(batch_data)
+            processed_proteins.update(d['protein_id'] for d in batch_data)
             
-            # Save intermediate results
-            save_intermediate_results(all_protein_data, timestamp)
+            # Save intermediate results for current batch
+            if current_batch_data:
+                save_intermediate_results(current_batch_data, timestamp)
+                current_batch_data = []  # Clear current batch after saving
             
             # Progress report
             progress = (start_position + BATCH_SIZE) / total_count * 100
@@ -226,8 +258,8 @@ def main():
             if not protein_ids or start_position >= total_count:
                 break
         
-        # Save final results
-        save_final_results(all_protein_data, timestamp)
+        # Combine all intermediate files into final result
+        final_file = combine_intermediate_files(timestamp)
         
         # Log summary statistics
         logging.info("\n=== Final Summary ===")
@@ -235,6 +267,7 @@ def main():
         logging.info(f"Successful fetches: {total_successful_fetches}")
         logging.info(f"Failed fetches: {total_failed_fetches}")
         logging.info(f"Success rate: {(total_successful_fetches/(total_successful_fetches + total_failed_fetches))*100:.1f}%")
+        logging.info(f"Final output saved to: {final_file}")
         
     except Exception as e:
         logging.error(f"Critical error in main execution: {str(e)}")
